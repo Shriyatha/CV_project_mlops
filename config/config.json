@@ -1,0 +1,18 @@
+{
+    "logging": {
+      "level": "INFO",
+      "file": "app.log"
+    },
+    "api": {
+        "source": "fastapi"
+    },
+    "fastapi": {
+        "host": "127.0.0.1",
+        "port": 8000,
+        "debug": false
+    },
+    "bentoml": {
+        "url": "http://127.0.0.1:3000/search"
+    }
+    
+  }

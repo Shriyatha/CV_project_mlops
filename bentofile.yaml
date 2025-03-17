@@ -1,0 +1,7 @@
+service: "bento_service.py:SearchService"  # Path to the service
+labels:
+  owner: my-team
+  project: search-service
+include:
+  - "*.py"                       # Include all Python files
+  - "static/**/*"                # Include static files (if any)

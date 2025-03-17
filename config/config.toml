@@ -1,0 +1,10 @@
+[fastapi]
+host = "127.0.0.1"
+port = 8000
+debug = true
+search_limit = 10
+allowed_file_types = ["image", "video"]
+
+[logging]
+level = "INFO"
+file = "app.log"
