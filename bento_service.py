@@ -76,4 +76,3 @@ class SearchService:
         except (OSError, RuntimeError) as e:  # ✅ Replace blind `except Exception`
             logger.exception(f"Unexpected error: {e}")
             return SearchResponse(status="failed", error="An unexpected error.")
-

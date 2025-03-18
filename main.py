@@ -19,7 +19,7 @@ from transformers import BlipForConditionalGeneration, BlipProcessor
 from whoosh import index
 from whoosh.fields import DATETIME, ID, TEXT, Schema
 from whoosh.qparser import OrGroup, QueryParser
-
+import ffmpeg
 # Configure logging
 logger.add(
     "app.log", rotation="10MB", level="INFO",
@@ -70,56 +70,40 @@ def extract_timestamp_from_image(image_path: str) -> datetime | None:
             for tag, value in exif_data.items():
                 if TAGS.get(tag) == "DateTime":
                     return datetime.strptime(
-                        value, "%Y:%m:%d %H:%M:%S").replace(tzinfo=timezone.utc)
-
+                        value, "%Y:%m:%d %H:%M:%S"
+                    ).replace(tzinfo=timezone.utc)
     except (AttributeError, KeyError) as e:
         logger.error(f"Error extracting EXIF data from image {image_path}: {e}")
     return None
 
 def extract_timestamp_from_video(video_path: str) -> str | None:
-    """Extract timestamp from video metadata using ffprobe."""
+    """Extract timestamp from video metadata using ffmpeg-python."""
     try:
         # Ensure the video path is valid and exists
-        if not Path.exists(video_path):
+        if not Path(video_path).exists():
             logger.error(f"Video file not found: {video_path}")
             return None
 
         # Convert to absolute path
-        video_path = Path.abspath(video_path)
+        video_path = Path(video_path).resolve()
 
         # Ensure the path is safe (no unexpected characters)
-        if not all(c.isalnum() or c in {".", "/", "-", "_"} for c in video_path):
+        if not all(c.isalnum() or c in {".", "/", "-", "_"} for c in str(video_path)):
             logger.error(f"Invalid characters in video path: {video_path}")
             return None
-        # Hardcoded command to ensure safety
-        command = [
-            "ffprobe", "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=tags", "-of", "default=noprint_wrappers=1",
-            video_path,
-        ]
 
-        # Execute the command
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        # Use ffmpeg.probe to extract metadata
+        metadata = ffmpeg.probe(str(video_path))
+        for stream in metadata.get("streams", []):
+            if "tags" in stream and "creation_time" in stream["tags"]:
+                return stream["tags"]["creation_time"]
 
-        # Parse the output to extract 'creation_time'
-        output = result.stdout
-        if "creation_time" in output:
-            timestamp_line = next(
-                line for line in output.split("\n")
-                if "creation_time" in line
-            )
-            return timestamp_line.split("=")[1].strip()
+    except ffmpeg.Error as e:
+        logger.error(f"Error extracting timestamp from {video_path}: {e.stderr}")
+    except Exception as e:
+        logger.error(f"Unexpected error processing {video_path}: {e}")
+    return None
 
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Error extracting timestamp from {video_path}: {e}")
-        return None
-    else:
-        return "Unknown"
 def generate_caption(image_path: str) -> str:
     """Generate an image caption using the BLIP model."""
     try:

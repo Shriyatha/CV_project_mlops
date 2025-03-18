@@ -1,1 +1,29 @@
-moviepy-1.0.3
+loguru==0.7.3
+moviepy==1.0.3
+Pillow==10.0.0
+nltk==3.8.1
+whoosh==2.7.4
+ffmpeg-python==0.2.0
+Flask==3.0.0
+httpx==0.28.1
+inflect==7.5.0
+aiohttp==3.7.4
+bentoml==1.4.5  # Ensure BentoML 1.x
+pydantic==2.10.6  # Keep Pydantic 1.x
+python-dotenv==1.0.1
+fastapi==0.115.11
+uvicorn==0.34.0  # ASGI Server for FastAPI
+grpcio>=1.50.0  # Required for BentoML gRPC support
+grpcio-tools>=1.50.0  # Required for gRPC proto compilation
+sentencepiece  # Tokenization for Transformers
+protobuf>=3.20.0  # Protocol buffers for Transformers/BentoML
+locust==2.33.1
+gevent>=22.10.2  # Required for Locust performance testing
+torch==2.6.0
+torchvision==0.21.0
+torchaudio==2.6.0
+transformers==4.48.2
+imageio[ffmpeg]  # FFmpeg support for ImageIO
+imageio-ffmpeg==0.6.0
+decorator==4.4.2
+pygments==2.18.0

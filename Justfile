@@ -1,40 +1,32 @@
-# Justfile for setting up and running the Python application
+# Set shell mode
+set shell := ["bash", "-c"]
 
-# Default target (run the application)
-default:
-    just run
+# Define virtual environment name
+venv := ".venv_test"
 
-# Install Python dependencies
-install:
-    # Install Python dependencies
-    pip install -r requirements.txt
-    # Download NLTK data
-    python -c "import nltk; nltk.download('wordnet'); nltk.download('omw-1.4')"
+# Use Python 3.11 explicitly
+PYTHON := `command -v python3.11 || command -v python3 || command -v python`
+
+# Create virtual environment and install dependencies
+setup:
+    uv venv --python=python3.11 .venv_test   # ✅ Ensure Python 3.11 is used
+    source .venv_test/bin/activate
+    uv pip install tokenizers
+    uv pip install -r requirements.txt
+    bentoml build
 
 # Run the application
 run:
-    python3 app.py
+    source .venv_test/bin/activate
+    python app.py
 
-# Clean up temporary files and folders
+# Clean up virtual environment
 clean:
-    # Remove temporary frame files
-    rm -f temp_frame_*.jpg
-    # Remove the index folder
-    rm -rf index
-    # Remove log files
-    rm -f app.log
+    rm -rf {{venv}}
 
-# Format the code using black
-format:
-    black .
-
-# Lint the code using flake8
-lint:
-    flake8 .
-
-# Run tests (if any)
-test:
-    pytest
-
-# Set up the development environment
-setup: install format lint
+# Display help message
+help:
+    @echo "Available recipes:"
+    @echo "  setup - Create virtual environment and install dependencies"
+    @echo "  run   - Run the application"
+    @echo "  clean - Remove virtual environment"

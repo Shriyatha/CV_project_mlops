@@ -4,15 +4,18 @@
       "file": "app.log"
     },
     "api": {
-        "source": "fastapi"
+      "source": "fastapi"
     },
     "fastapi": {
-        "host": "127.0.0.1",
-        "port": 8000,
-        "debug": false
+      "host": "127.0.0.1",
+      "port": 8000,
+      "debug": false,
+      "health_check_endpoint": "/health"
     },
     "bentoml": {
-        "url": "http://127.0.0.1:3000/search"
+      "host": "127.0.0.1",
+      "port": 3000,
+      "health_check_endpoint": "/healthz",
+      "search_endpoint": "/search"
     }
-    
-  }
+}
