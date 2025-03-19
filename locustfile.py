@@ -1,11 +1,11 @@
-"""Locust performance testing for a model-serving API."""
-
+"""LOCUST FILE CODE."""
 import logging
 import secrets
 from typing import ClassVar
 
 from locust import HttpUser, between, task
 
+HTTP_OK = 200  # ✅ Define a constant for the status code
 
 class ModelServingUser(HttpUser):
     """Simulates user behavior for load testing the model-serving API."""
@@ -25,13 +25,11 @@ class ModelServingUser(HttpUser):
         payload = {"input_data": secrets.choice(self.search_queries)}
 
         with self.client.post("/search", json=payload, catch_response=True) as response:
-            response_code = 200
-            if response.status_code == response_code:
+            if response.status_code == HTTP_OK:  # ✅ Use constant instead of 200
                 response.success()
                 logging.info("Search successful: %s", payload)
             else:
                 response.failure(
-                    "Search failed: %s, Payload: %s",
-                    response.status_code,
-                    payload,
+                    f"Search failed: {response.status_code}, "
+                    f"Payload: {payload}",  # ✅ Break long line
                 )

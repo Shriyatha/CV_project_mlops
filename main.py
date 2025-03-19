@@ -8,6 +8,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+import ffmpeg
 import inflect
 import nltk
 from loguru import logger
@@ -19,7 +20,7 @@ from transformers import BlipForConditionalGeneration, BlipProcessor
 from whoosh import index
 from whoosh.fields import DATETIME, ID, TEXT, Schema
 from whoosh.qparser import OrGroup, QueryParser
-import ffmpeg
+
 # Configure logging
 logger.add(
     "app.log", rotation="10MB", level="INFO",
@@ -43,9 +44,13 @@ FRAME_SAMPLE_RATE = 3  # Extract every 3 seconds for video captions
 # Ensure required directories exist
 for folder in [IMAGE_FOLDER, VIDEO_FOLDER, INDEX_FOLDER]:
     Path(folder).mkdir(parents=True, exist_ok=True)
+
 # Define schema
-schema = Schema(file_path=ID(stored=True),
-                description=TEXT(stored=True), date=DATETIME(stored=True))
+schema = Schema(
+    file_path=ID(stored=True),
+    description=TEXT(stored=True),
+    date=DATETIME(stored=True),  # Add date field for temporal queries
+)
 
 # Create or open index
 if not Path(INDEX_FOLDER).joinpath("MAIN_0.toc").exists():
@@ -61,6 +66,7 @@ model = BlipForConditionalGeneration.from_pretrained(
 )
 logger.info("BLIP model loaded successfully!")
 
+
 def extract_timestamp_from_image(image_path: str) -> datetime | None:
     """Extract timestamp from image EXIF data."""
     try:
@@ -70,7 +76,7 @@ def extract_timestamp_from_image(image_path: str) -> datetime | None:
             for tag, value in exif_data.items():
                 if TAGS.get(tag) == "DateTime":
                     return datetime.strptime(
-                        value, "%Y:%m:%d %H:%M:%S"
+                        value, "%Y:%m:%d %H:%M:%S",
                     ).replace(tzinfo=timezone.utc)
     except (AttributeError, KeyError) as e:
         logger.error(f"Error extracting EXIF data from image {image_path}: {e}")
@@ -80,29 +86,27 @@ def extract_timestamp_from_video(video_path: str) -> str | None:
     """Extract timestamp from video metadata using ffmpeg-python."""
     try:
         # Ensure the video path is valid and exists
-        if not Path(video_path).exists():
-            logger.error(f"Video file not found: {video_path}")
+        video_path_obj = Path(video_path)
+        if not video_path_obj.exists():
+            logger.error("Video file not found: %s", video_path)
             return None
 
         # Convert to absolute path
-        video_path = Path(video_path).resolve()
-
-        # Ensure the path is safe (no unexpected characters)
-        if not all(c.isalnum() or c in {".", "/", "-", "_"} for c in str(video_path)):
-            logger.error(f"Invalid characters in video path: {video_path}")
-            return None
+        video_path = str(video_path_obj.resolve())
 
         # Use ffmpeg.probe to extract metadata
-        metadata = ffmpeg.probe(str(video_path))
+        metadata = ffmpeg.probe(video_path)
         for stream in metadata.get("streams", []):
-            if "tags" in stream and "creation_time" in stream["tags"]:
-                return stream["tags"]["creation_time"]
+            creation_time = stream.get("tags", {}).get("creation_time")
+            if creation_time:
+                return creation_time
 
-    except ffmpeg.Error as e:
-        logger.error(f"Error extracting timestamp from {video_path}: {e.stderr}")
-    except Exception as e:
-        logger.error(f"Unexpected error processing {video_path}: {e}")
+    except ffmpeg.Error:
+        logger.error("FFmpeg error while extracting timestamp")
+    except FileNotFoundError:
+        logger.error("File disappeared before processing: %s", video_path)
     return None
+
 
 def generate_caption(image_path: str) -> str:
     """Generate an image caption using the BLIP model."""
@@ -117,6 +121,7 @@ def generate_caption(image_path: str) -> str:
         return "No description available."
     else:
         return caption
+
 
 def extract_video_caption(video_path: str | Path) -> str:
     """Extract frames from a video and generate an overall description."""
@@ -137,6 +142,7 @@ def extract_video_caption(video_path: str | Path) -> str:
     except (OSError, subprocess.CalledProcessError) as e:
         logger.warning(f"Error processing frame at {i}s: {e}")
     return " ".join(descriptions) if descriptions else "No description available."
+
 
 def index_data() -> None:
     """Index images and videos."""
@@ -179,7 +185,7 @@ def index_data() -> None:
 
                 # Add the document to the index
                 writer.add_document(
-                    file_path=str(video_path),  # Convert Path to string
+                    file_path=str(video_path),  
                     description=video_caption,
                     date=timestamp,
                 )
@@ -191,16 +197,6 @@ def index_data() -> None:
         logger.error(f"Error indexing data: {e}")
         return
 
-def expand_query(query: str) -> str:
-    """Expand search query by including singular/plural forms."""
-    base_form = lemmatizer.lemmatize(query.lower())
-    plural_form = inflect_engine.plural(base_form)
-    singular_form = inflect_engine.singular_noun(query.lower()) or query.lower()
-    query_variants = {query.lower(), base_form, plural_form, singular_form}
-    expanded_query = " OR ".join(query_variants)
-    logger.info(f"Expanded query: {expanded_query}")
-    return expanded_query
-
 def search_with_filters(
     query: str,
     file_type: str | None = None,
@@ -208,34 +204,53 @@ def search_with_filters(
     end_date: datetime | None = None,
 ) -> list[dict]:
     """Search with optional filters for file type and date range."""
-    expanded_query = expand_query(query)
     search_results = []
 
     with ix.searcher() as searcher:
+        # Handle NOT operator explicitly
+        if " NOT " in query:
+            main_query, exclude_term = query.split(" NOT ", 1)
+            main_query = main_query.strip()
+            exclude_term = exclude_term.strip().lower()  # Case-insensitive exclusion
+        else:
+            main_query = query
+            exclude_term = None
+
+        # Parse the main query
         qp = QueryParser("description", ix.schema, group=OrGroup)
-        q = qp.parse(f"{expanded_query}*")
+        q = qp.parse(main_query)
+
+        # Perform the search
         results = searcher.search(q, limit=10)
 
+        # Filter results by date range and exclude_term
+        filtered_results = []
         for hit in results:
+            if exclude_term and exclude_term in hit["description"].lower():
+                continue  # Skip documents containing the exclude_term
             if file_type and file_type not in hit["file_path"]:
                 continue
             if start_date and hit["date"] < start_date:
                 continue
             if end_date and hit["date"] > end_date:
                 continue
-            search_results.append((hit["file_path"], hit["description"], hit["date"]))
+            filtered_results.append((hit["file_path"], hit["description"], hit["date"]))
 
-    search_results = [(img, desc) for img, desc, _ in search_results]
+        search_results = [(img, desc) for img, desc, _ in filtered_results]
 
     logger.info(f"Search results for '{query}': {search_results}")
     return search_results
 
+
 def run_advanced_search(
-        query: str, file_type: str,
-        start_date: datetime | None,
-        end_date: datetime | None) -> list[dict]:
+    query: str,
+    file_type: str,
+    start_date: datetime | None,
+    end_date: datetime | None,
+) -> list[dict]:
     """Search UI function for retrieving images and videos."""
     return search_with_filters(query, file_type, start_date, end_date)
+
 
 # Run indexing before launching the UI
 index_data()

@@ -2,14 +2,14 @@
 
 from __future__ import annotations  # Simplify type hints
 
+import multiprocessing
 import os
-import shutil
-import signal
-import subprocess
 import time
 from typing import Any
 
+import bentoml
 import httpx
+import uvicorn
 from flask import (
     Flask,
     Response,
@@ -37,13 +37,20 @@ API_URLS = {
 # Constants
 HTTP_OK = 200
 
+def run_fastapi() -> None:
+    """Run FastAPI server."""
+    uvicorn.run("fastapi_app:app", host="127.0.0.1", port=8000)
+
+def run_bentoml() -> None:
+    """Run BentoML server."""
+    bentoml.serve("bento_service:SearchService", port=3000)
 
 class APIManager:
     """Manages the API process for FastAPI and BentoML."""
 
     def __init__(self) -> None:
         """Initialize the APIManager."""
-        self.api_process: subprocess.Popen | None = None
+        self.api_process: multiprocessing.Process | None = None
 
     def wait_for_api(self, api_url: str, timeout: int = 200) -> bool:
         """Wait for the API to be ready by polling its health endpoint."""
@@ -52,12 +59,12 @@ class APIManager:
             try:
                 response = httpx.get(api_url, timeout=5)
                 if response.status_code == HTTP_OK:
-                    logger.info("API is up and running at {}", api_url)
+                    logger.info(f"API is up and running at {api_url}")
                     return True
             except httpx.RequestError as e:
                 logger.info(f"Waiting for API to start... Error: {e}")
             time.sleep(1)
-        logger.error("API did not start within {} seconds", timeout)
+        logger.error(f"API did not start within {timeout} seconds")
         return False
 
     def start_api(self, api_source: str) -> bool:
@@ -65,65 +72,31 @@ class APIManager:
         # Kill existing API process if running
         if self.api_process:
             logger.info("Stopping previous API process...")
-            os.kill(self.api_process.pid, signal.SIGTERM)
-            self.api_process.wait()  # Wait for the process to terminate
+            self.api_process.terminate()
+            self.api_process.join()  # Wait for the process to terminate
 
         # Start the selected API
         if api_source == "fastapi":
             logger.info("Starting FastAPI server...")
-            uvicorn_path = shutil.which("uvicorn")
-            uvicorn_path = shutil.which("uvicorn")
-            if not uvicorn_path:
-                error_msg = "uvicorn not found in PATH"
-                raise ValueError(error_msg)
-            if not os.access(uvicorn_path, os.X_OK):
-                error_msg = "uvicorn is not executable"
-                raise ValueError(error_msg)
-            self.api_process = subprocess.Popen(
-                [
-                    uvicorn_path,
-                    "fastapi_app:app",
-                    "--host",
-                    "127.0.0.1",
-                    "--port",
-                    "8000",
-                ],
-            )
-            api_url = "http://127.0.0.1:8000/health"
+            self.api_process = multiprocessing.Process(target=run_fastapi)
         elif api_source == "bentoml":
             logger.info("Starting BentoML server...")
-            bentoml_path = shutil.which("bentoml")
-            if not bentoml_path:
-                error_msg = "bentoml not found in PATH"
-                raise ValueError(error_msg)
-            if not os.access(bentoml_path, os.X_OK):
-                error_msg = "bentoml is not executable"
-                raise ValueError(error_msg)
-
-            self.api_process = subprocess.Popen(
-                [
-                    bentoml_path,
-                    "serve",
-                    "bento_service:SearchService",
-                    "--port",
-                    "3000",
-                ],
-            )
-            api_url = "http://127.0.0.1:3000/healthz"
+            self.api_process = multiprocessing.Process(target=run_bentoml)
         else:
-            logger.error("Unknown API source: {}", api_source)
+            logger.error("Unknown API source: %s", api_source)
             return False
 
+        self.api_process.start()
+
         # Wait for API to be ready before proceeding
+        api_url = "http://127.0.0.1:8000/health" if api_source == "fastapi" else "http://127.0.0.1:3000/healthz"
         if not self.wait_for_api(api_url):
             logger.error("API failed to start. Please check logs.")
             return False
         return True
 
-
 # Initialize APIManager
 api_manager = APIManager()
-
 
 @app.route("/", methods=["GET", "POST"])
 def select_api() -> Response:
@@ -155,7 +128,7 @@ def fetch_results_fastapi(validated_input: SearchQuery) -> list[dict[str, Any]]:
             response = client.get(api_url, params=validated_input.model_dump())
             response.raise_for_status()
             api_results = response.json().get("results", [])
-            logger.info("Received {} results from FastAPI", len(api_results))
+            logger.info(f"Received {len(api_results)} results from FastAPI")
 
             # Format results and strip the 'static/' prefix
             formatted_results = []
@@ -197,7 +170,7 @@ def fetch_results_bentoml(validated_input: SearchQuery) -> list[dict[str, Any]]:
             response = client.post(api_url, json=payload)
             response.raise_for_status()
             api_results = response.json().get("results", [])
-            logger.info("Received {} results from BentoML", len(api_results))
+            logger.info(f"Received {len(api_results)} results from BentoML")
 
             # Format results and strip the 'static/' prefix
             formatted_results = []
@@ -216,7 +189,7 @@ def fetch_results_bentoml(validated_input: SearchQuery) -> list[dict[str, Any]]:
             return formatted_results
 
     except httpx.HTTPError as e:
-        logger.error("Error communicating with BentoML: {}", e)
+        logger.error(f"Error communicating with BentoML: {e}")
         return [
             {
                 "media": None,
@@ -234,7 +207,7 @@ def fetch_results(validated_input: SearchQuery) -> list[dict[str, Any]]:
         return fetch_results_fastapi(validated_input)
     if api_source == "bentoml":
         return fetch_results_bentoml(validated_input)
-    logger.error("Unknown API source: {}", api_source)
+    logger.error(f"Unknown API source: {api_source}")
     return [{"media": None, "caption": "Unknown API source", "media_type": "text"}]
 
 

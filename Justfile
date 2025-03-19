@@ -10,15 +10,13 @@ PYTHON := `command -v python3.11 || command -v python3 || command -v python`
 # Create virtual environment and install dependencies
 setup:
     uv venv --python=python3.11 .venv_test   # ✅ Ensure Python 3.11 is used
-    source .venv_test/bin/activate
-    uv pip install tokenizers
-    uv pip install -r requirements.txt
-    bentoml build
+    source .venv_test/bin/activate && uv pip install -r requirements.txt  # Activate and install dependencies
+    source .venv_test/bin/activate && bentoml build 
 
 # Run the application
 run:
     source .venv_test/bin/activate
-    python app.py
+    python3 app.py
 
 # Clean up virtual environment
 clean:
