@@ -1,6 +1,6 @@
 """Flask application for managing API interactions and serving content."""
 
-from __future__ import annotations  # Simplify type hints
+from __future__ import annotations
 
 import multiprocessing
 import os

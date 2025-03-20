@@ -185,7 +185,7 @@ def index_data() -> None:
 
                 # Add the document to the index
                 writer.add_document(
-                    file_path=str(video_path),  
+                    file_path=str(video_path),
                     description=video_caption,
                     date=timestamp,
                 )
