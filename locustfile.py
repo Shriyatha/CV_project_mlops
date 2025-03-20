@@ -4,7 +4,7 @@ This script automatically detects whether the target service is FastAPI or Bento
 and adjusts the request type (`GET` for FastAPI, `POST` for BentoML).
 """
 
-import secrets  # Use for secure random selection
+import secrets  # Secure random selection
 from typing import ClassVar
 
 from locust import HttpUser, between, task
@@ -25,43 +25,57 @@ class SearchUser(HttpUser):
         {"query": "man", "file_type": "image"},
     ]
 
-    use_post: bool = False  # Detect if service is BentoML (POST) or FastAPI (GET)
-    health_endpoint: str = "/health"  # Default to FastAPI
+    use_post: bool = False  # True for BentoML (POST), False for FastAPI (GET)
+    health_endpoint: str = "/health"  # Default FastAPI health check
 
     def on_start(self) -> None:
         """Detect service type by checking health endpoints."""
+        # Try FastAPI health check first
         response = self.client.get("/health")
         if response.status_code == HTTP_OK:
-            self.use_post = False
+            self.use_post = False  # FastAPI uses GET for search
             self.health_endpoint = "/health"
             return
 
         # If FastAPI check fails, assume BentoML and check /healthz
         response = self.client.get("/healthz")
         if response.status_code == HTTP_OK:
-            self.use_post = True
+            self.use_post = True  # BentoML uses POST for search
             self.health_endpoint = "/healthz"
+            return
+
+        # If both fail, assume BentoML but log an issue
+        self.use_post = True
+        self.health_endpoint = "/healthz"
+
 
     @task(3)  # Prioritize search requests (3x more frequent)
     def search_test(self) -> None:
         """Simulate a user making a search request."""
         payload = secrets.choice(self.search_queries)  # Secure random choice
 
-        response = (
-            self.client.post("/search", json=payload)
-            if self.use_post
-            else self.client.get("/search", params=payload)
-        )
+        # BentoML requires input to be wrapped inside "input_data"
+        formatted_payload = {"input_data": payload}
+
+        if self.use_post:
+            response = self.client.post("/search", json=formatted_payload)
+        else:
+            response = self.client.get("/search", params=payload)
 
         if response.status_code == HTTP_OK:
             response.success()
         else:
-            response.failure(f"Search request failed: {response.status_code}")
+            response.failure(
+                f"Search request fail:{response.status_code}, Response:{response.text}",
+            )
 
     @task(1)  # Less frequent health checks
     def health_check(self) -> None:
         """Perform periodic health checks."""
-        response = self.client.get(self.health_endpoint)  # Dynamic health check
+        # Check health using the detected endpoint
+        response = self.client.get(self.health_endpoint)
 
         if response.status_code != HTTP_OK:
-            response.failure(f"Health check failed: {response.status_code}")
+            response.failure(
+                f"Health failed at {self.health_endpoint}: {response.status_code}",
+            )

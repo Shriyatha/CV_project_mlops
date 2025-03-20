@@ -27,3 +27,10 @@ imageio[ffmpeg]  # FFmpeg support for ImageIO
 imageio-ffmpeg==0.6.0
 decorator==4.4.2
 pygments==2.18.0
+
+# Documentation
+mkdocs-material
+mkdocs-mermaid2-plugin
+pymdown-extensions
+pygments 
+python-dotenv
