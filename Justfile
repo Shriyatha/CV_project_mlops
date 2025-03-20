@@ -22,6 +22,11 @@ run:
 clean:
     rm -rf {{venv}}
 
+
+# Project Documentation
+docs:
+    mkdocs serve
+    
 # Display help message
 help:
     @echo "Available recipes:"
